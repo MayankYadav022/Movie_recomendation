@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -30,6 +31,7 @@ def _get_secret_or_env(name: str, default: str = "") -> str:
 
 
 API_BASE = _get_secret_or_env("API_BASE", DEFAULT_API_BASE)
+API_FALLBACK = _get_secret_or_env("API_FALLBACK", "")
 TMDB_API_KEY = _get_secret_or_env("TMDB_API_KEY", "")
 TMDB_BASE = _get_secret_or_env("TMDB_BASE_URL", DEFAULT_TMDB_BASE)
 TMDB_IMAGE_BASE = _get_secret_or_env("TMDB_IMAGE_BASE_URL", DEFAULT_TMDB_IMAGE_BASE)
@@ -41,13 +43,22 @@ st.caption("TF-IDF recommendations + TMDB posters and movie details")
 
 @st.cache_data(ttl=30)
 def api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Any], Optional[str]]:
-    try:
-        r = requests.get(f"{API_BASE}{path}", params=params, timeout=20)
-        if r.status_code >= 400:
-            return None, f"HTTP {r.status_code}: {r.text[:200]}"
-        return r.json(), None
-    except requests.exceptions.RequestException as e:
-        return None, str(e)
+    bases = [API_BASE] + ([API_FALLBACK] if API_FALLBACK else [])
+    last_err = "Unknown error"
+
+    for base in bases:
+        for attempt in range(2):  # retry once (helps cold start)
+            try:
+                r = requests.get(f"{base}{path}", params=params, timeout=(10, 60))
+                if r.status_code >= 400:
+                    last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                else:
+                    return r.json(), None
+            except requests.exceptions.RequestException as e:
+                last_err = str(e)
+            time.sleep(1.5)
+
+    return None, last_err
 
 
 def _normalize_title_for_tmdb(title: str) -> str:
