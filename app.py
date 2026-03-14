@@ -47,17 +47,14 @@ def api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Tuple[Optiona
     last_err = "Unknown error"
 
     for base in bases:
-        for attempt in range(2):  # retry once (helps cold start)
+        for _ in range(2):
             try:
                 r = requests.get(f"{base}{path}", params=params, timeout=(10, 60))
-                if r.status_code >= 400:
-                    last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-                else:
+                if r.status_code < 400:
                     return r.json(), None
+                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
             except requests.exceptions.RequestException as e:
                 last_err = str(e)
-            time.sleep(1.5)
-
     return None, last_err
 
 
